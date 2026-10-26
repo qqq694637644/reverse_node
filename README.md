@@ -1,5 +1,37 @@
 # reverse_node
 
+## 自动发布 Windows / Linux amd64
+
+[GitHub Actions: Release Windows and Linux AMD64](https://github.com/qqq694637644/reverse_node/actions/workflows/release.yml) 使用 Ubuntu Runner 交叉编译 `reverse_node-windows-amd64.exe` 和 `reverse_node-linux-amd64`，另发布 `SHA256SUMS` 校验文件。
+
+- **不填版本**：没有稳定 Release 时，从 `0.0.1` 开始；如果最新版为 `0.0.1`，自动发布 `0.0.2`；例如 `0.9.9` 升级为 `0.9.10`。依据已发布的稳定 Release 的最大语义版本，忽略草稿、预发布及非版本标签。
+- **指定版本**：在 workflow 的可选 `version` 参数填 `0.1.0`；已存在的 tag / Release 不会被手动流程覆盖。
+- **Tag 触发**：推送 `0.1.0` 或 `v0.1.0` Git tag 也会触发构建与发布。
+- **测试与发布**：先运行 Go 测试、`go vet` 和版本规则测试，再构建 Windows/Linux amd64、生成 SHA-256 校验值并创建 GitHub Release。二进制的 `reverse_node version` 命令会显示发布版本。
+
+GitHub CLI 不指定版本直接触发：
+
+```powershell
+gh workflow run release.yml --repo qqq694637644/reverse_node --ref main
+```
+
+需要指定版本时：
+
+```powershell
+gh workflow run release.yml --repo qqq694637644/reverse_node --ref main -f version=0.0.3
+```
+
+### 下载 Windows 最新版
+
+在 **Windows PowerShell** 中执行：
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/qqq694637644/reverse_node/releases/latest/download/reverse_node-windows-amd64.exe" -OutFile ".\reverse_node.exe"
+.\reverse_node.exe version
+```
+
+以上下载的是 reverse_node 启动器，不含 Xray 内核；请另外准备兼容的 Xray-core 26.3.27，并通过 `--xray-path` 指向其 `xray.exe` 文件。
+
 Windows 境内节点：使用 **Xray-core 26.3.27 原生 Reverse Portal + Hysteria2 / QUIC Brutal**，替换旧 nat_node 中的 Python RSX3 数据面。该程序不实现第二套隧道协议，只负责生成配置、验证并管理 `xray.exe` 进程。
 
 ## 连接方向（重要）

@@ -1,0 +1,117 @@
+name: Release Windows and Linux AMD64
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional release version (e.g. 0.0.2). Leave blank to auto-increment patch: 0.0.1 -> 0.0.2'
+        required: false
+        type: string
+        default: ''
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+# Serialize releases so concurrent dispatches cannot choose the same patch.
+concurrency:
+  group: reverse-node-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build Windows/Linux amd64 and publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout reverse_node
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve release tag
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Pushed tags use the tag; dispatches may omit the version.
+          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 \
+            --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/release-list.json"
+          TAG="$(python3 scripts/resolve_release_version.py \
+            --releases "$RUNNER_TEMP/release-list.json" \
+            --version "$REQUESTED_VERSION")"
+
+          # Manual dispatch must never overwrite an existing version.
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            git ls-remote --tags origin > "$RUNNER_TEMP/remote-tags.txt"
+            if cut -f2 "$RUNNER_TEMP/remote-tags.txt" | grep -Fxq "refs/tags/$TAG"; then
+              echo "::error::Tag $TAG already exists. Pick a new version or use automatic patch increment."
+              exit 1
+            fi
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName > /dev/null 2>&1; then
+              echo "::error::Release $TAG already exists."
+              exit 1
+            fi
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $TAG"
+
+      - name: Verify tests
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+      - name: Build Windows and Linux amd64 binaries
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION" \
+            -o dist/reverse_node-windows-amd64.exe .
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION" \
+            -o dist/reverse_node-linux-amd64 .
+
+          chmod +x dist/reverse_node-linux-amd64
+          dist/reverse_node-linux-amd64 version | tee "$RUNNER_TEMP/version.txt"
+          grep -Fq "reverse_node $RELEASE_VERSION " "$RUNNER_TEMP/version.txt"
+          file dist/reverse_node-windows-amd64.exe dist/reverse_node-linux-amd64
+          file dist/reverse_node-windows-amd64.exe | grep -Fq 'PE32+ executable'
+          file dist/reverse_node-linux-amd64 | grep -Fq 'ELF 64-bit'
+
+          (cd dist && sha256sum reverse_node-windows-amd64.exe reverse_node-linux-amd64 > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Publish release binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.version.outputs.tag }}
+          make_latest: true
+          generate_release_notes: true
+          files: |
+            dist/reverse_node-windows-amd64.exe
+            dist/reverse_node-linux-amd64
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true

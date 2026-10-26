@@ -26,8 +26,11 @@ import (
 	"time"
 )
 
+// The release workflow injects the published tag with -ldflags -X main.version.
+// Local developer builds use a visibly non-release version.
+var version = "0.0.0-dev"
+
 const (
-	version             = "0.1.0"
 	xrayVersion         = "26.3.27"
 	defaultHysteriaPort = 18443
 	defaultSocksPort    = 1080

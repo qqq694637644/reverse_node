@@ -1,0 +1,13 @@
+# Local binaries and generated secrets/configuration
+/reverse_node.exe
+/reverse_node
+/xray-portal.json
+/overseas-bridge.fragment.json
+/node.json
+/tls-cert.pem
+/tls-key.pem
+/data/
+/.build/
+*.log
+*.tmp
+__pycache__/
